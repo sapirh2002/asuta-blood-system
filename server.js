@@ -23,6 +23,10 @@ function audit(req, action, entity_type, entity_id, details) {
 }
 function requireAuth(req,res,next){ if(!req.session.user) return res.status(401).json({error:'נדרשת התחברות'}); next(); }
 function requireAdmin(req,res,next){ if(!req.session.user||req.session.user.role!=='admin') return res.status(403).json({error:'נדרשות הרשאות מנהל'}); next(); }
+// הרשאה לפי תפקיד — מקבל רשימת תפקידים מותרים
+function requireRole(...roles){ return (req,res,next)=>{ if(!req.session.user) return res.status(401).json({error:'נדרשת התחברות'}); if(!roles.includes(req.session.user.role)) return res.status(403).json({error:'אין לתפקידך הרשאה לפעולה זו'}); next(); }; }
+const CLINICAL=['nurse','doctor','admin'];   // צוות קליני שליד המיטה
+const BANK=['bloodbank','admin'];            // בנק הדם
 function daysUntil(dateStr){ if(!dateStr) return null; const d=new Date(dateStr+'T00:00:00'); return Math.ceil((d-new Date())/864e5); }
 function authStatus(user){
   const days = daysUntil(user.authorization_expiry);
@@ -36,7 +40,7 @@ app.post('/api/login',(req,res)=>{
   const {username,password}=req.body;
   if(!username||!password) return res.status(400).json({error:'יש למלא שם משתמש וסיסמה'});
   const user=db.prepare('SELECT * FROM users WHERE username=?').get(username);
-  if(!user||!bcrypt.compareSync(password,user.password_hash)) return res.status(401).json({error:'שם משתמש או סיסמה שגויים'});
+  if(!user||user.deleted||!bcrypt.compareSync(password,user.password_hash)) return res.status(401).json({error:'שם משתמש או סיסמה שגויים'});
   if(!user.active) return res.status(403).json({error:'המשתמש מושבת. פנה למנהל המערכת'});
   req.session.user={id:user.id,username:user.username,full_name:user.full_name,role:user.role};
   audit(req,'התחברות למערכת','user',user.id,null);
@@ -53,7 +57,7 @@ app.post('/api/auth/verify',requireAuth,(req,res)=>{
   const {username,password}=req.body;
   if(!username||!password) return res.status(400).json({error:'יש למלא שם משתמש וסיסמה'});
   const user=db.prepare('SELECT * FROM users WHERE username=?').get(username);
-  if(!user||!bcrypt.compareSync(password,user.password_hash)) return res.status(401).json({error:'אימות נכשל — שם משתמש או סיסמה שגויים'});
+  if(!user||user.deleted||!bcrypt.compareSync(password,user.password_hash)) return res.status(401).json({error:'אימות נכשל — שם משתמש או סיסמה שגויים'});
   if(!user.active) return res.status(403).json({error:'המשתמש מושבת'});
   const st=authStatus(user);
   if(st.expired) return res.status(403).json({error:'הרשאת המשתמש פגה — לא ניתן לחתום. פנה למנהל'});
@@ -72,7 +76,7 @@ app.get('/api/patients/:admission_no',requireAuth,(req,res)=>{
   if(!p) return res.status(404).json({error:'מטופל לא נמצא'});
   res.json({patient:p});
 });
-app.post('/api/patients',requireAuth,(req,res)=>{
+app.post('/api/patients',requireRole(...CLINICAL),(req,res)=>{
   const {admission_no,national_id,full_name,department,blood_type,relevant_background}=req.body;
   if(!admission_no||!full_name) return res.status(400).json({error:'חובה למלא מספר אשפוז ושם'});
   try{
@@ -87,7 +91,7 @@ app.post('/api/patients',requireAuth,(req,res)=>{
 app.get('/api/samples',requireAuth,(req,res)=>{
   res.json({samples:db.prepare(`SELECT s.*, p.admission_no, p.full_name AS patient_name FROM samples s JOIN patients p ON p.id=s.patient_id ORDER BY s.created_at DESC LIMIT 100`).all()});
 });
-app.post('/api/samples',requireAuth,(req,res)=>{
+app.post('/api/samples',requireRole(...CLINICAL),(req,res)=>{
   const {patient_id,tests,cord_blood,urgency,urgency_reason,tube_scanned}=req.body;
   if(!patient_id) return res.status(400).json({error:'חובה לבחור מטופל'});
   if(!tube_scanned) return res.status(400).json({error:'יש לסרוק את מדבקת המבחנה'});
@@ -98,35 +102,49 @@ app.post('/api/samples',requireAuth,(req,res)=>{
   res.json({sample:db.prepare('SELECT * FROM samples WHERE id=?').get(i.lastInsertRowid)});
 });
 
+// בנק הדם: עדכון סטטוס דגימה / החזרה + תוצאה
+app.put('/api/samples/:id',requireRole(...BANK),(req,res)=>{
+  const {status,result,mark_returned}=req.body;
+  const sets=[],vals=[];
+  if(status!==undefined){ sets.push('status=?'); vals.push(status); }
+  if(result!==undefined){ sets.push('result=?'); vals.push(result); }
+  if(mark_returned){ sets.push("returned_at=datetime('now','localtime')"); if(status===undefined){ sets.push('status=?'); vals.push('הוחזרה/נבדקה'); } }
+  if(!sets.length) return res.json({ok:true});
+  vals.push(req.params.id);
+  db.prepare(`UPDATE samples SET ${sets.join(',')} WHERE id=?`).run(...vals);
+  audit(req,'עדכון דגימה (בנק הדם)','sample',req.params.id,(status||'')+(mark_returned?' · הוחזרה':'')+(result?' · '+result:''));
+  res.json({sample:db.prepare('SELECT * FROM samples WHERE id=?').get(req.params.id)});
+});
+
 // ---------- הזמנות ----------
 app.get('/api/orders',requireAuth,(req,res)=>{
   const orders=db.prepare(`SELECT o.*, p.admission_no, p.full_name AS patient_name FROM orders o JOIN patients p ON p.id=o.patient_id ORDER BY o.created_at DESC LIMIT 100`).all();
   for(const o of orders) o.items=db.prepare('SELECT component,quantity FROM order_items WHERE order_id=?').all(o.id);
   res.json({orders});
 });
-app.post('/api/orders',requireAuth,(req,res)=>{
-  const {patient_id,sample_id,order_type,items,special_requirements,hematologist,ordered_by_type,signature}=req.body;
+app.post('/api/orders',requireRole(...CLINICAL),(req,res)=>{
+  const {patient_id,sample_id,order_type,urgency,items,special_requirements,hematologist,ordered_by_type,signature}=req.body;
   if(!patient_id) return res.status(400).json({error:'חובה לבחור מטופל'});
   // חתימה עם סיסמה אחרי שליחת הזמנה
   if(!signature||!signature.username) return res.status(400).json({error:'נדרשת חתימה בסיסמה לשליחת ההזמנה'});
   const su=db.prepare('SELECT * FROM users WHERE username=?').get(signature.username);
   if(!su||!bcrypt.compareSync(signature.password||'',su.password_hash)) return res.status(401).json({error:'חתימה נכשלה — שם משתמש או סיסמה שגויים'});
-  const i=db.prepare('INSERT INTO orders (patient_id,sample_id,order_type,special_requirements,hematologist,ordered_by_type,ordered_by,signed_by,status) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(patient_id,sample_id||null,order_type||'components',special_requirements||null,hematologist||null,ordered_by_type||'doctor',req.session.user.id,su.full_name,'נקלט');
+  const i=db.prepare('INSERT INTO orders (patient_id,sample_id,order_type,urgency,special_requirements,hematologist,ordered_by_type,ordered_by,signed_by,status) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(patient_id,sample_id||null,order_type||'components',urgency||'שגרתי',special_requirements||null,hematologist||null,ordered_by_type||'doctor',req.session.user.id,su.full_name,'נקלט');
   const oid=i.lastInsertRowid;
   if(order_type!=='tests' && Array.isArray(items)) for(const it of items) db.prepare('INSERT INTO order_items (order_id,component,quantity) VALUES (?,?,?)').run(oid,it.component,it.quantity||1);
   db.prepare('INSERT INTO signatures (entity_type,entity_id,stage,user_id,signed_by) VALUES (?,?,?,?,?)').run('order',oid,'חתימת הזמנה',su.id,su.full_name);
   audit(req,'הזמנה נשלחה ונחתמה','order',oid,order_type==='tests'?'בדיקות בלבד':(items||[]).map(x=>x.component+'×'+(x.quantity||1)).join(', '));
   res.json({order:db.prepare('SELECT * FROM orders WHERE id=?').get(oid)});
 });
-app.put('/api/orders/:id/status',requireAuth,(req,res)=>{
+app.put('/api/orders/:id/status',requireRole(...BANK),(req,res)=>{
   db.prepare("UPDATE orders SET status=?, updated_at=datetime('now','localtime') WHERE id=?").run(req.body.status,req.params.id);
   audit(req,'עדכון סטטוס הזמנה','order',req.params.id,req.body.status);
   res.json({ok:true});
 });
 
 // ---------- עירויים ----------
-app.post('/api/transfusions',requireAuth,(req,res)=>{
+app.post('/api/transfusions',requireRole(...CLINICAL),(req,res)=>{
   const b=req.body;
   if(!b.patient_id) return res.status(400).json({error:'חובה לבחור מטופל'});
   if(!b.bp_before||!b.pulse_before||!b.temp_before) return res.status(400).json({error:'חובה להזין מדדים (ל.ד, דופק, חום) לפני התחלת עירוי'});
@@ -135,8 +153,8 @@ app.post('/api/transfusions',requireAuth,(req,res)=>{
   audit(req,'התחלת עירוי','transfusion',i.lastInsertRowid,b.unit_no||'');
   res.json({transfusion:db.prepare('SELECT * FROM transfusions WHERE id=?').get(i.lastInsertRowid)});
 });
-app.put('/api/transfusions/:id',requireAuth,(req,res)=>{
-  const fields=['unit_no','blood_type','bp_15','pulse_15','temp_15','bp_end','pulse_end','temp_end','end_time','duration_min','outcome','status','block_reason'];
+app.put('/api/transfusions/:id',requireRole(...CLINICAL),(req,res)=>{
+  const fields=['unit_no','blood_type','bp_15','pulse_15','temp_15','bp_end','pulse_end','temp_end','end_time','duration_min','outcome','nurse_notes','status','block_reason'];
   const sets=[],vals=[];
   for(const f of fields) if(req.body[f]!==undefined){ sets.push(`${f}=?`); vals.push(req.body[f]); }
   if(!sets.length) return res.json({ok:true});
@@ -147,11 +165,11 @@ app.put('/api/transfusions/:id',requireAuth,(req,res)=>{
 });
 
 // ---------- חתימות ----------
-app.post('/api/signatures',requireAuth,(req,res)=>{
+app.post('/api/signatures',requireRole(...CLINICAL),(req,res)=>{
   const {entity_type,entity_id,stage,username,password}=req.body;
   if(!username||!password) return res.status(400).json({error:'נדרש אימות לפני חתימה'});
   const user=db.prepare('SELECT * FROM users WHERE username=?').get(username);
-  if(!user||!bcrypt.compareSync(password,user.password_hash)) return res.status(401).json({error:'אימות נכשל — שם משתמש או סיסמה שגויים'});
+  if(!user||user.deleted||!bcrypt.compareSync(password,user.password_hash)) return res.status(401).json({error:'אימות נכשל — שם משתמש או סיסמה שגויים'});
   if(!user.active) return res.status(403).json({error:'המשתמש מושבת'});
   const st=authStatus(user);
   if(st.expired) return res.status(403).json({error:'הרשאת המשתמש פגה — לא ניתן לחתום'});
@@ -169,6 +187,57 @@ app.get('/api/reports/summary',requireAuth,(req,res)=>{
   res.json({avg_process_min:avgDur||0,transfusions,cdss_blocks:blocks,audit_coverage:100,by_department:byDept});
 });
 app.get('/api/audit',requireAuth,(req,res)=>{ res.json({audit:db.prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 200').all()}); });
+
+// תיק מטופל — כל ההיסטוריה
+app.get('/api/patients/:id/history',requireAuth,(req,res)=>{
+  const pid=req.params.id;
+  const patient=db.prepare('SELECT * FROM patients WHERE id=?').get(pid);
+  if(!patient) return res.status(404).json({error:'מטופל לא נמצא'});
+  const samples=db.prepare('SELECT * FROM samples WHERE patient_id=? ORDER BY created_at DESC').all(pid);
+  const orders=db.prepare('SELECT * FROM orders WHERE patient_id=? ORDER BY created_at DESC').all(pid);
+  for(const o of orders) o.items=db.prepare('SELECT component,quantity FROM order_items WHERE order_id=?').all(o.id);
+  const transfusions=db.prepare('SELECT * FROM transfusions WHERE patient_id=? ORDER BY created_at DESC').all(pid);
+  res.json({patient,samples,orders,transfusions});
+});
+
+// דוחות אנליטיקה מורחבים
+const HE_DAYS=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+app.get('/api/reports/analytics',requireAuth,(req,res)=>{
+  const from=req.query.from||'2000-01-01', to=req.query.to||'2999-12-31';
+  const q=(sql,...a)=>db.prepare(sql).get(...a);
+  const qa=(sql,...a)=>db.prepare(sql).all(...a);
+  // בטווח תאריכים
+  const samples_in_range=q('SELECT COUNT(*) c FROM samples WHERE date(created_at) BETWEEN ? AND ?',from,to).c;
+  const trans_in_range=q('SELECT COUNT(*) c FROM transfusions WHERE date(created_at) BETWEEN ? AND ?',from,to).c;
+  // לפי חודש
+  const samples_by_month=qa("SELECT strftime('%Y-%m',created_at) m, COUNT(*) c FROM samples GROUP BY m ORDER BY m DESC LIMIT 12");
+  const trans_by_month=qa("SELECT strftime('%Y-%m',created_at) m, COUNT(*) c FROM transfusions GROUP BY m ORDER BY m DESC LIMIT 12");
+  // מגמה 30 יום
+  const s_by_day=Object.fromEntries(qa("SELECT date(created_at) d, COUNT(*) c FROM samples WHERE created_at>=datetime('now','localtime','-30 days') GROUP BY d").map(r=>[r.d,r.c]));
+  const t_by_day=Object.fromEntries(qa("SELECT date(created_at) d, COUNT(*) c FROM transfusions WHERE created_at>=datetime('now','localtime','-30 days') GROUP BY d").map(r=>[r.d,r.c]));
+  // איחורי בנק הדם (72 שעות)
+  const total=q('SELECT COUNT(*) c FROM samples').c;
+  const on_time=q('SELECT COUNT(*) c FROM samples WHERE returned_at IS NOT NULL AND returned_at<=expires_at').c;
+  const late=q('SELECT COUNT(*) c FROM samples WHERE returned_at IS NOT NULL AND returned_at>expires_at').c;
+  const overdue_open=q("SELECT COUNT(*) c FROM samples WHERE returned_at IS NULL AND datetime('now','localtime')>expires_at").c;
+  const not_in_time=late+overdue_open;
+  const on_time_pct=total?Math.round(on_time/total*100):100;
+  // תגובות עירוי
+  const outcomes=qa("SELECT COALESCE(outcome,'ללא סיכום') o, COUNT(*) c FROM transfusions WHERE status='הושלם' GROUP BY o");
+  // עומס לפי יום בשבוע (דגימות)
+  const wd=Object.fromEntries(qa("SELECT strftime('%w',created_at) w, COUNT(*) c FROM samples GROUP BY w").map(r=>[r.w,r.c]));
+  const load_by_weekday=HE_DAYS.map((name,i)=>({day:name,count:wd[String(i)]||0}));
+  // פעילות לפי משתמש
+  const activity_by_user=qa("SELECT COALESCE(user_name,'—') u, COUNT(*) c FROM audit_log GROUP BY u ORDER BY c DESC LIMIT 15");
+  const signatures_by_user=qa("SELECT signed_by u, COUNT(*) c FROM signatures GROUP BY u ORDER BY c DESC LIMIT 15");
+  const by_department=qa("SELECT p.department dept, COUNT(*) c FROM transfusions t JOIN patients p ON p.id=t.patient_id GROUP BY dept ORDER BY c DESC");
+  res.json({
+    range:{from,to,samples:samples_in_range,transfusions:trans_in_range},
+    samples_by_month, trans_by_month, trend:{samples:s_by_day,transfusions:t_by_day},
+    late_returns:{total,on_time,late,overdue_open,not_in_time,on_time_pct},
+    outcomes, load_by_weekday, activity_by_user, signatures_by_user, by_department
+  });
+});
 app.get('/api/settings',requireAuth,(req,res)=>{
   res.json({ hematologists:JSON.parse(setting('hematologists')||'[]'), departments:JSON.parse(setting('departments')||'[]'),
     criteria_irradiated:setting('criteria_irradiated'), criteria_cmv:setting('criteria_cmv') });
@@ -176,7 +245,12 @@ app.get('/api/settings',requireAuth,(req,res)=>{
 
 // ---------- אדמין: משתמשים ----------
 app.get('/api/admin/users',requireAdmin,(req,res)=>{
-  res.json({users:db.prepare('SELECT id,username,full_name,role,active,authorization_expiry,created_at FROM users ORDER BY id').all()});
+  res.json({users:db.prepare('SELECT id,username,full_name,role,active,authorization_expiry,created_at FROM users WHERE deleted=0 ORDER BY id').all()});
+});
+app.delete('/api/admin/users/:id',requireAdmin,(req,res)=>{
+  db.prepare('UPDATE users SET deleted=1, active=0 WHERE id=?').run(req.params.id);
+  audit(req,'מחיקת משתמש','user',req.params.id,null);
+  res.json({ok:true});
 });
 app.post('/api/admin/users',requireAdmin,(req,res)=>{
   const {username,password,full_name,role,authorization_expiry}=req.body;

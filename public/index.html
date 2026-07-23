@@ -65,7 +65,7 @@
 
   <div class="main-layout">
     <nav class="sidebar">
-      <div class="sidebar-section">
+      <div class="sidebar-section" id="clinical-section">
         <div class="sidebar-label">תהליך מטופל</div>
         <button class="nav-item active" onclick="showPage('patient-id',this)"><span class="nav-icon">👤</span> זיהוי מטופל</button>
         <button class="nav-item" onclick="showPage('sample',this)"><span class="nav-icon">🧪</span> לקיחת דגימה</button>
@@ -75,6 +75,7 @@
       <div class="sidebar-section">
         <div class="sidebar-label">מודולים נוספים</div>
         <button class="nav-item" onclick="showPage('blood-bank',this)"><span class="nav-icon">🏦</span> בנק הדם</button>
+        <button class="nav-item" onclick="showPage('patient-search',this)"><span class="nav-icon">🔎</span> חיפוש מטופל</button>
         <button class="nav-item" onclick="showPage('reports',this)"><span class="nav-icon">📊</span> דוחות</button>
         <button class="nav-item hidden" id="nav-admin" onclick="showPage('admin',this)"><span class="nav-icon">⚙️</span> ניהול (אדמין)</button>
       </div>
@@ -221,6 +222,16 @@
             <div class="selector-group" id="order-type-group">
               <button class="selector-btn active" onclick="selectOrderType(this,'components')">מרכיבי דם</button>
               <button class="selector-btn" onclick="selectOrderType(this,'tests')">בדיקות בלבד (ללא מרכיבים)</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>רמת דחיפות ההזמנה</label>
+            <div class="radio-group" id="order-urgency-group">
+              <button class="radio-btn active" onclick="selectRadio(this)">שגרתי</button>
+              <button class="radio-btn urgent" onclick="selectRadio(this)">דחוף (תוך שעתיים)</button>
+              <button class="radio-btn urgent" onclick="selectRadio(this)">דחוף לפי סוג — ללא סקר והצלבה</button>
+              <button class="radio-btn emergency" onclick="selectRadio(this)">חירום — ללא בדיקת סוג (O±)</button>
             </div>
           </div>
 
@@ -378,6 +389,10 @@
             </div>
           </div>
 
+          <div class="form-group">
+            <label>הערות האחות (טקסט חופשי)</label>
+            <textarea class="form-control" id="nurse-notes" placeholder="למשל: המטופל פיתח חום גבוה במהלך העירוי, תגובה עורית וכו׳..."></textarea>
+          </div>
           <button class="btn btn-secondary" style="margin-bottom:12px;" onclick="endTransfusion()">⏹ סיום עירוי</button>
           <div id="end-time-display" style="margin-bottom:12px;font-size:12px;color:var(--success);font-weight:600;"></div>
           <div id="end-outcome" class="hidden" style="margin-bottom:12px;"></div>
@@ -388,9 +403,9 @@
         </div>
       </div>
 
-      <!-- ========== BLOOD BANK ========== -->
-      <div id="page-blood-bank" class="page">
-        <div class="page-header"><h2>בנק הדם</h2><p>ניהול דגימות, הזמנות מנות וחיפוש מטופל.</p></div>
+      <!-- ========== PATIENT SEARCH (תיק מטופל) ========== -->
+      <div id="page-patient-search" class="page">
+        <div class="page-header"><h2>חיפוש מטופל</h2><p>חיפוש מטופל והצגת תיק מלא — דגימות ותוצאות, הזמנות ועירויים כולל הערות.</p></div>
         <div class="card">
           <div class="card-title">🔍 חיפוש מטופל</div>
           <div class="search-box">
@@ -399,18 +414,23 @@
           </div>
           <div id="search-result"></div>
         </div>
+      </div>
+
+      <!-- ========== BLOOD BANK ========== -->
+      <div id="page-blood-bank" class="page">
+        <div class="page-header"><h2>בנק הדם</h2><p>ניהול דגימות והזמנות מנות.</p></div>
         <div class="card">
           <div class="card-title">🧪 דגימות נכנסות</div>
           <table>
-            <thead><tr><th>מספר דגימה</th><th>מטופל</th><th>זמן קליטה</th><th>דחיפות</th><th>סטטוס</th></tr></thead>
-            <tbody id="samples-tbody"><tr><td colspan="5" style="color:var(--gray-400);">טוען...</td></tr></tbody>
+            <thead><tr><th>מספר דגימה</th><th>מטופל</th><th>זמן קליטה</th><th>דחיפות</th><th>סטטוס</th><th>תוצאה / פעולה</th></tr></thead>
+            <tbody id="samples-tbody"><tr><td colspan="6" style="color:var(--gray-400);">טוען...</td></tr></tbody>
           </table>
         </div>
         <div class="card">
           <div class="card-title">📦 מעקב הזמנות מנות</div>
           <table>
-            <thead><tr><th>מטופל</th><th>מרכיב</th><th>זמן הזמנה</th><th>סטטוס</th><th>עדכון אחרון</th></tr></thead>
-            <tbody id="orders-tbody"><tr><td colspan="5" style="color:var(--gray-400);">טוען...</td></tr></tbody>
+            <thead><tr><th>מטופל</th><th>מרכיב</th><th>דחיפות</th><th>זמן הזמנה</th><th>סטטוס</th><th>עדכון</th></tr></thead>
+            <tbody id="orders-tbody"><tr><td colspan="6" style="color:var(--gray-400);">טוען...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -418,16 +438,44 @@
       <!-- ========== REPORTS ========== -->
       <div id="page-reports" class="page">
         <div class="page-header"><h2>דוחות</h2><p>נתונים אגרגטיביים מבוססי חותמות הזמן והעקיבות לתמיכה בקבלת החלטות ועמידה רגולטורית.</p></div>
-        <div class="stat-grid">
-          <div class="stat-card"><div class="stat-val" id="rp-avg">—</div><div class="stat-lbl">דק׳ — משך עירוי ממוצע</div></div>
-          <div class="stat-card"><div class="stat-val" id="rp-trans">—</div><div class="stat-lbl">עירויים שהושלמו</div></div>
-          <div class="stat-card"><div class="stat-val" id="rp-blocks">—</div><div class="stat-lbl">חסימות CDSS</div></div>
-          <div class="stat-card"><div class="stat-val" id="rp-audit">100%</div><div class="stat-lbl">עקיבות (Audit Trail)</div></div>
-        </div>
+
         <div class="card">
-          <div class="card-title">עירויים לפי מחלקה</div>
-          <div class="bar-chart" id="rp-dept"><div class="bar-row"><div class="bar-label" style="color:var(--gray-400);">אין נתונים עדיין</div></div></div>
+          <div class="card-title">🔎 סינון לפי תאריך</div>
+          <div class="grid-3">
+            <div class="form-group"><label>מתאריך</label><input type="date" class="form-control" id="rp-from"></div>
+            <div class="form-group"><label>עד תאריך</label><input type="date" class="form-control" id="rp-to"></div>
+            <div class="form-group" style="display:flex;align-items:flex-end;"><button class="btn btn-primary" onclick="loadReports()">הפק דוח</button></div>
+          </div>
+          <div class="stat-grid" style="margin-top:6px;">
+            <div class="stat-card"><div class="stat-val" id="rp-samples">—</div><div class="stat-lbl">דגימות בטווח</div></div>
+            <div class="stat-card"><div class="stat-val" id="rp-trans-range">—</div><div class="stat-lbl">עירויים בטווח</div></div>
+            <div class="stat-card"><div class="stat-val" id="rp-avg">—</div><div class="stat-lbl">דק׳ — משך עירוי ממוצע</div></div>
+            <div class="stat-card"><div class="stat-val" id="rp-blocks">—</div><div class="stat-lbl">חסימות CDSS</div></div>
+          </div>
         </div>
+
+        <div class="card">
+          <div class="card-title">⏱️ עמידה בזמן בנק הדם (חלון 72 שעות)</div>
+          <div class="stat-grid" id="rp-late"></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card"><div class="card-title">🧪 דגימות לפי חודש</div><div class="bar-chart" id="rp-samples-month"></div></div>
+          <div class="card"><div class="card-title">🩸 עירויים לפי חודש</div><div class="bar-chart" id="rp-trans-month"></div></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card"><div class="card-title">💉 תגובות עירוי</div><div class="bar-chart" id="rp-outcomes"></div></div>
+          <div class="card"><div class="card-title">📅 עומס לפי יום בשבוע (דגימות)</div><div class="bar-chart" id="rp-weekday"></div></div>
+        </div>
+
+        <div class="card"><div class="card-title">📈 מגמה — 30 הימים האחרונים (דגימות)</div><div id="rp-trend"></div></div>
+
+        <div class="grid-2">
+          <div class="card"><div class="card-title">👥 פעילות לפי משתמש</div><div class="bar-chart" id="rp-activity"></div></div>
+          <div class="card"><div class="card-title">🩸 עירויים לפי מחלקה</div><div class="bar-chart" id="rp-dept"></div></div>
+        </div>
+
         <div class="card">
           <div class="card-title">📋 יומן פעולות (Audit Trail)</div>
           <table>

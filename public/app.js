@@ -29,6 +29,17 @@ async function enterApp(auth){
   document.getElementById('app').style.display='flex';
   document.getElementById('topbar-username').textContent='מחובר · '+currentUser.full_name;
   document.getElementById('nav-admin').classList.toggle('hidden', currentUser.role!=='admin');
+  // הרשאות לפי תפקיד — בנק הדם לא רואה את התהליך הקליני
+  const isBank=currentUser.role==='bloodbank';
+  document.getElementById('clinical-section').classList.toggle('hidden', isBank);
+  if(isBank){
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    document.getElementById('page-blood-bank').classList.add('active');
+    const bankNav=[...document.querySelectorAll('.nav-item')].find(b=>b.textContent.includes('בנק הדם'));
+    if(bankNav) bankNav.classList.add('active');
+    loadSamples(); loadOrders();
+  }
   showAuthWarning(auth);
   try{ settings=await api('/api/settings'); }catch(e){}
 }
@@ -187,7 +198,8 @@ function updateSpecial(){ const v=Object.values(specialState); document.getEleme
 function sendOrder(){
   openCreds(async(u,p)=>{
     const items=[...document.querySelectorAll('#component-rows .grid-2')].map(r=>({component:r.querySelector('.comp-sel').value,quantity:parseInt(r.querySelector('.comp-qty').value)||1}));
-    const r=await api('/api/orders','POST',{patient_id:currentPatient.id,sample_id:currentSample?currentSample.id:null,order_type:orderType,items,special_requirements:Object.values(specialState).join(', '),hematologist:specialState['שטוף']||null,ordered_by_type:ordererType,signature:{username:u,password:p}});
+    const ub=document.querySelector('#order-urgency-group .radio-btn.active'); const urgency=ub?ub.textContent.trim():'שגרתי';
+    const r=await api('/api/orders','POST',{patient_id:currentPatient.id,sample_id:currentSample?currentSample.id:null,order_type:orderType,urgency,items,special_requirements:Object.values(specialState).join(', '),hematologist:specialState['שטוף']||null,ordered_by_type:ordererType,signature:{username:u,password:p}});
     currentOrder=r.order; document.getElementById('order-time').textContent=now(); document.getElementById('order-sent').classList.remove('hidden');
   },'חתימת הזמנה');
 }
@@ -264,7 +276,7 @@ function endTransfusion(){
     const sel=document.querySelector('input[name="outcome"]:checked').value;
     const dur=transfusionStart?Math.max(1,Math.round((new Date()-transfusionStart)/60000)):45;
     try{
-      await api('/api/transfusions/'+currentTransfusion.id,'PUT',{bp_15:document.getElementById('bp15').value,pulse_15:document.getElementById('pulse15').value,bp_end:document.getElementById('bp-end').value,pulse_end:document.getElementById('pulse-end').value,end_time:now(),duration_min:dur,outcome:sel,status:'הושלם'});
+      await api('/api/transfusions/'+currentTransfusion.id,'PUT',{bp_15:document.getElementById('bp15').value,pulse_15:document.getElementById('pulse15').value,bp_end:document.getElementById('bp-end').value,pulse_end:document.getElementById('pulse-end').value,nurse_notes:document.getElementById('nurse-notes').value,end_time:now(),duration_min:dur,outcome:sel,status:'הושלם'});
     }catch(e){ alert(e.message); return; }
     document.getElementById('end-time-display').textContent='⏹ הסתיים בשעה '+now();
     document.getElementById('duration-display').textContent=dur+' דקות';
@@ -281,25 +293,96 @@ async function searchPatient(){
   if(!q){ box.innerHTML=''; return; }
   const {patients}=await api('/api/patients?q='+encodeURIComponent(q));
   if(!patients.length){ box.innerHTML='<div class="alert alert-warning" style="margin-top:12px;"><span class="alert-icon">⚠️</span> לא נמצאו מטופלים.</div>'; return; }
-  box.innerHTML=patients.map(p=>`<div class="patient-grid" style="margin-top:12px;"><div class="patient-field"><label>שם</label><div class="val">${esc(p.full_name)}</div></div><div class="patient-field"><label>מספר אשפוז</label><div class="val">${esc(p.admission_no)}</div></div><div class="patient-field"><label>מחלקה</label><div class="val">${esc(p.department||'—')}</div></div><div class="patient-field"><label>סוג דם</label><div class="val">${esc(p.blood_type||'—')}</div></div></div>`).join('');
+  if(patients.length===1){ openPatientFile(patients[0].id); return; }
+  box.innerHTML=patients.map(p=>`<div class="card" style="margin-top:12px;cursor:pointer;" onclick="openPatientFile(${p.id})"><div class="card-title" style="border:none;padding:0;margin:0;">👤 ${esc(p.full_name)} · ${esc(p.admission_no)} <span style="font-weight:400;color:var(--gray-400);margin-right:8px;">(לחצי לפתיחת תיק מלא)</span></div></div>`).join('');
+}
+async function openPatientFile(id){
+  const h=await api('/api/patients/'+id+'/history'); const p=h.patient;
+  const sRows=h.samples.length?h.samples.map(s=>`<tr><td>${esc(s.sample_no)}</td><td><span class="timestamp">🕐 ${esc(s.created_at)}</span></td><td>${esc(s.urgency)}${s.cord_blood?' · יילוד':''}</td><td>${statusBadge(s.status)}</td><td>${esc(s.result||'—')}</td></tr>`).join(''):'<tr><td colspan="5" style="color:var(--gray-400);">אין דגימות</td></tr>';
+  const oRows=h.orders.length?h.orders.map(o=>`<tr><td>${o.order_type==='tests'?'בדיקות בלבד':esc((o.items||[]).map(x=>x.component+'×'+x.quantity).join(', ')||'—')}</td><td>${esc(o.urgency||'שגרתי')}</td><td><span class="timestamp">🕐 ${esc(o.created_at)}</span></td><td>${statusBadge(o.status)}</td></tr>`).join(''):'<tr><td colspan="4" style="color:var(--gray-400);">אין הזמנות</td></tr>';
+  const tRows=h.transfusions.length?h.transfusions.map(t=>`<tr><td>${esc(t.unit_no||'—')} · ${esc(t.blood_type||'')}</td><td><span class="timestamp">🕐 ${esc(t.created_at)}</span></td><td>${t.duration_min?t.duration_min+' דק׳':'—'}</td><td>${esc(t.outcome||'—')}</td><td>${esc(t.nurse_notes||'—')}</td></tr>`).join(''):'<tr><td colspan="5" style="color:var(--gray-400);">אין עירויים</td></tr>';
+  document.getElementById('search-result').innerHTML=`
+   <div class="card" style="margin-top:12px;border-right:4px solid var(--burgundy);">
+    <div class="card-title">📁 תיק מטופל — ${esc(p.full_name)} · ${esc(p.admission_no)}</div>
+    <div class="patient-grid" style="margin-bottom:8px;">
+      <div class="patient-field"><label>תעודת זהות</label><div class="val">${esc(p.national_id||'—')}</div></div>
+      <div class="patient-field"><label>מחלקה</label><div class="val">${esc(p.department||'—')}</div></div>
+      <div class="patient-field"><label>סוג דם</label><div class="val">${esc(p.blood_type||'—')}</div></div>
+      <div class="patient-field"><label>רקע רלוונטי</label><div class="val" style="color:var(--burgundy);font-weight:700;">${esc(p.relevant_background||'אין')}</div></div>
+    </div>
+    <div style="font-weight:700;color:var(--burgundy-dark);margin:14px 0 6px;">🧪 דגימות (${h.samples.length})</div>
+    <table><thead><tr><th>מס׳ דגימה</th><th>זמן</th><th>דחיפות</th><th>סטטוס</th><th>תוצאה</th></tr></thead><tbody>${sRows}</tbody></table>
+    <div style="font-weight:700;color:var(--burgundy-dark);margin:14px 0 6px;">📦 הזמנות (${h.orders.length})</div>
+    <table><thead><tr><th>מרכיב</th><th>דחיפות</th><th>זמן</th><th>סטטוס</th></tr></thead><tbody>${oRows}</tbody></table>
+    <div style="font-weight:700;color:var(--burgundy-dark);margin:14px 0 6px;">🩸 עירויים (${h.transfusions.length})</div>
+    <table><thead><tr><th>מנה</th><th>זמן</th><th>משך</th><th>תגובה/תוצאה</th><th>הערות האחות</th></tr></thead><tbody>${tRows}</tbody></table>
+   </div>`;
 }
 function statusBadge(s){ const m={'הושלם':'badge-done','בעיבוד':'badge-process','נקלט':'badge-process','בהכנה':'badge-process','נשלח':'badge-done','הגיע':'badge-done'}; return `<span class="badge ${m[s]||'badge-pending'}">${esc(s)}</span>`; }
+function canBank(){ return currentUser && ['bloodbank','admin'].includes(currentUser.role); }
 async function loadSamples(){
   const {samples}=await api('/api/samples');
-  document.getElementById('samples-tbody').innerHTML=samples.length?samples.map(s=>`<tr><td>${esc(s.sample_no)}</td><td>${esc(s.patient_name)} · ${esc(s.admission_no)}</td><td><span class="timestamp">🕐 ${esc((s.created_at||'').split(' ')[1]||'')}</span></td><td>${esc(s.urgency)}${s.cord_blood?' · יילוד':''}</td><td>${statusBadge(s.status)}</td></tr>`).join(''):'<tr><td colspan="5" style="color:var(--gray-400);">אין דגימות עדיין</td></tr>';
+  document.getElementById('samples-tbody').innerHTML=samples.length?samples.map(s=>{
+    let action;
+    if(s.returned_at) action='✅ '+esc(s.result||'הוחזרה/נבדקה');
+    else if(canBank()) action=`<button class="btn btn-sm btn-primary" onclick="returnSample(${s.id})">סמן הוחזרה + תוצאה</button>`;
+    else action='<span style="color:var(--gray-400);">ממתין לבנק הדם</span>';
+    return `<tr><td>${esc(s.sample_no)}</td><td>${esc(s.patient_name)} · ${esc(s.admission_no)}</td><td><span class="timestamp">🕐 ${esc((s.created_at||'').split(' ')[1]||'')}</span></td><td>${esc(s.urgency)}${s.cord_blood?' · יילוד':''}</td><td>${statusBadge(s.status)}</td><td>${action}</td></tr>`;
+  }).join(''):'<tr><td colspan="6" style="color:var(--gray-400);">אין דגימות עדיין</td></tr>';
 }
+function returnSample(id){
+  openInfo('סימון דגימה כהוחזרה/נבדקה', `<label>תוצאת הבדיקה</label><input class="form-control" id="ret-result" placeholder="למשל: O+, סקר נוגדנים שלילי"><div style="font-size:12px;color:var(--gray-400);margin-top:6px;">הזמן יירשם אוטומטית ויושווה מול חלון ה-72 שעות.</div>`,
+    async()=>{ try{ await api('/api/samples/'+id,'PUT',{mark_returned:true,result:document.getElementById('ret-result').value,status:'הוחזרה/נבדקה'}); loadSamples(); }catch(e){ alert(e.message); } });
+}
+const ORDER_STATUSES=['נקלט','בהכנה','נשלח','הגיע'];
 async function loadOrders(){
   const {orders}=await api('/api/orders');
-  document.getElementById('orders-tbody').innerHTML=orders.length?orders.map(o=>{ const comp=o.order_type==='tests'?'בדיקות בלבד':(o.items||[]).map(x=>x.component+' × '+x.quantity).join(', ')||'—'; return `<tr><td>${esc(o.patient_name)} · ${esc(o.admission_no)}</td><td>${esc(comp)}</td><td><span class="timestamp">🕐 ${esc((o.created_at||'').split(' ')[1]||'')}</span></td><td>${statusBadge(o.status)}</td><td><span class="timestamp">🕐 ${esc((o.updated_at||'').split(' ')[1]||'')}</span></td></tr>`; }).join(''):'<tr><td colspan="5" style="color:var(--gray-400);">אין הזמנות עדיין</td></tr>';
+  document.getElementById('orders-tbody').innerHTML=orders.length?orders.map(o=>{
+    const comp=o.order_type==='tests'?'בדיקות בלבד':(o.items||[]).map(x=>x.component+' × '+x.quantity).join(', ')||'—';
+    const statusCell=canBank()
+      ? `<select class="form-control" style="padding:5px;font-size:12px;" onchange="setOrderStatus(${o.id},this.value)">${ORDER_STATUSES.map(st=>`<option ${o.status===st?'selected':''}>${st}</option>`).join('')}</select>`
+      : statusBadge(o.status);
+    return `<tr><td>${esc(o.patient_name)} · ${esc(o.admission_no)}</td><td>${esc(comp)}</td><td>${esc(o.urgency||'שגרתי')}</td><td><span class="timestamp">🕐 ${esc((o.created_at||'').split(' ')[1]||'')}</span></td><td>${statusCell}</td><td><span class="timestamp">🕐 ${esc((o.updated_at||'').split(' ')[1]||'')}</span></td></tr>`;
+  }).join(''):'<tr><td colspan="6" style="color:var(--gray-400);">אין הזמנות עדיין</td></tr>';
+}
+async function setOrderStatus(id,status){ try{ await api('/api/orders/'+id+'/status','PUT',{status}); loadOrders(); }catch(e){ alert(e.message); } }
+function bars(elId, rows, color){
+  const el=document.getElementById(elId); if(!el) return;
+  if(!rows.length){ el.innerHTML='<div class="bar-row"><div class="bar-label" style="color:var(--gray-400);">אין נתונים</div></div>'; return; }
+  const max=Math.max(...rows.map(r=>r.count),1); const c=color||'var(--burgundy)';
+  el.innerHTML=rows.map(r=>`<div class="bar-row"><div class="bar-label">${esc(r.label)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(4,Math.round(r.count/max*100))}%;background:${c};">${r.count}</div></div><div class="bar-val">${r.count}</div></div>`).join('');
+}
+function renderTrend(elId, map){
+  const el=document.getElementById(elId); if(!el) return;
+  const days=[]; const today=new Date();
+  for(let i=29;i>=0;i--){ const d=new Date(today.getTime()-i*864e5); days.push(d.toISOString().slice(0,10)); }
+  const counts=days.map(d=>map[d]||0); const max=Math.max(...counts,1);
+  el.innerHTML=`<div style="display:flex;align-items:flex-end;gap:3px;height:120px;padding-top:8px;">${days.map((d,i)=>`<div title="${d}: ${counts[i]}" style="flex:1;background:var(--burgundy);opacity:${counts[i]?1:0.15};height:${Math.max(3,Math.round(counts[i]/max*110))}px;border-radius:3px 3px 0 0;"></div>`).join('')}</div><div style="font-size:11px;color:var(--gray-400);margin-top:6px;">מ-${days[0]} עד ${days[29]} · שיא יומי: ${max}</div>`;
 }
 async function loadReports(){
-  const r=await api('/api/reports/summary');
-  document.getElementById('rp-avg').textContent=r.avg_process_min||0; document.getElementById('rp-trans').textContent=r.transfusions; document.getElementById('rp-blocks').textContent=r.cdss_blocks;
-  const dept=document.getElementById('rp-dept');
-  if(r.by_department.length){ const max=Math.max(...r.by_department.map(d=>d.c)); dept.innerHTML=r.by_department.map(d=>`<div class="bar-row"><div class="bar-label">${esc(d.dept||'ללא מחלקה')}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(d.c/max*100)}%;background:var(--burgundy);">${d.c}</div></div><div class="bar-val">${d.c}</div></div>`).join(''); }
-  else dept.innerHTML='<div class="bar-row"><div class="bar-label" style="color:var(--gray-400);">אין נתונים עדיין</div></div>';
+  const from=document.getElementById('rp-from').value||'2000-01-01';
+  const to=document.getElementById('rp-to').value||'2999-12-31';
+  const a=await api('/api/reports/analytics?from='+from+'&to='+to);
+  const s=await api('/api/reports/summary');
+  document.getElementById('rp-samples').textContent=a.range.samples;
+  document.getElementById('rp-trans-range').textContent=a.range.transfusions;
+  document.getElementById('rp-avg').textContent=s.avg_process_min||0;
+  document.getElementById('rp-blocks').textContent=s.cdss_blocks;
+  const lr=a.late_returns;
+  document.getElementById('rp-late').innerHTML=`
+    <div class="stat-card"><div class="stat-val">${lr.total}</div><div class="stat-lbl">סה״כ דגימות</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--success);">${lr.on_time_pct}%</div><div class="stat-lbl">עמידה בזמן</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--danger);">${lr.not_in_time}</div><div class="stat-lbl">לא הוחזרו תוך 72ש׳</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--warning);">${lr.overdue_open}</div><div class="stat-lbl">חורגות וטרם נבדקו</div></div>`;
+  bars('rp-samples-month', a.samples_by_month.map(x=>({label:x.m,count:x.c})));
+  bars('rp-trans-month', a.trans_by_month.map(x=>({label:x.m,count:x.c})), 'var(--burgundy-light)');
+  bars('rp-outcomes', a.outcomes.map(x=>({label:x.o,count:x.c})), 'var(--burgundy-mid)');
+  bars('rp-weekday', a.load_by_weekday.map(x=>({label:x.day,count:x.count})));
+  bars('rp-activity', a.activity_by_user.map(x=>({label:x.u,count:x.c})), 'var(--burgundy-light)');
+  bars('rp-dept', a.by_department.map(x=>({label:x.dept||'ללא מחלקה',count:x.c})));
+  renderTrend('rp-trend', a.trend.samples);
   const {audit}=await api('/api/audit');
-  document.getElementById('audit-tbody').innerHTML=audit.length?audit.slice(0,30).map(a=>`<tr><td><span class="timestamp">🕐 ${esc(a.created_at)}</span></td><td>${esc(a.user_name||'—')}</td><td>${esc(a.action)}</td><td>${esc(a.details||'')}</td></tr>`).join(''):'<tr><td colspan="4" style="color:var(--gray-400);">אין רשומות</td></tr>';
+  document.getElementById('audit-tbody').innerHTML=audit.length?audit.slice(0,30).map(x=>`<tr><td><span class="timestamp">🕐 ${esc(x.created_at)}</span></td><td>${esc(x.user_name||'—')}</td><td>${esc(x.action)}</td><td>${esc(x.details||'')}</td></tr>`).join(''):'<tr><td colspan="4" style="color:var(--gray-400);">אין רשומות</td></tr>';
 }
 
 // ---------- אדמין ----------
@@ -308,7 +391,7 @@ function adminTab(name,btn){ selectOne(btn); document.querySelectorAll('.admin-t
 const ROLES={nurse:'איש צוות',doctor:'רופא',bloodbank:'בנק הדם',admin:'מנהל'};
 async function loadUsers(){
   try{ const {users}=await api('/api/admin/users');
-    document.getElementById('users-tbody').innerHTML=users.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.full_name)}</td><td>${ROLES[u.role]||u.role}</td><td>${esc(u.authorization_expiry||'—')}</td><td>${u.active?'<span class="badge badge-done">פעיל</span>':'<span class="badge badge-danger">מושבת</span>'}</td><td><button class="btn btn-sm btn-secondary" onclick="toggleUser(${u.id},${u.active?0:1})">${u.active?'השבת':'הפעל'}</button></td></tr>`).join('');
+    document.getElementById('users-tbody').innerHTML=users.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.full_name)}</td><td>${ROLES[u.role]||u.role}</td><td>${esc(u.authorization_expiry||'—')}</td><td>${u.active?'<span class="badge badge-done">פעיל</span>':'<span class="badge badge-danger">מושבת</span>'}</td><td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="renewUser(${u.id})">חדש הרשאה</button> <button class="btn btn-sm btn-secondary" onclick="toggleUser(${u.id},${u.active?0:1})">${u.active?'השבת':'הפעל'}</button> <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">מחק</button></td></tr>`).join('');
   }catch(e){}
 }
 async function createUser(){
@@ -317,6 +400,17 @@ async function createUser(){
   try{ await api('/api/admin/users','POST',body); document.getElementById('nu-username').value='';document.getElementById('nu-fullname').value='';document.getElementById('nu-password').value=''; loadUsers(); }catch(e){ alert(e.message); }
 }
 async function toggleUser(id,active){ try{ await api('/api/admin/users/'+id,'PUT',{active}); loadUsers(); }catch(e){ alert(e.message); } }
+function deleteUser(id,username){
+  openInfo('מחיקת משתמש', `למחוק את המשתמש <strong>${esc(username)}</strong>? הוא יוסר מרשימת המשתמשים ולא יוכל להיכנס. שמו יישמר בדוחות וב-Audit לצורך עקיבות.`, async()=>{
+    try{ await api('/api/admin/users/'+id,'DELETE'); loadUsers(); }catch(e){ alert(e.message); }
+  });
+}
+function renewUser(id){
+  const d=new Date(); d.setFullYear(d.getFullYear()+1); const def=d.toISOString().slice(0,10);
+  openInfo('חידוש הרשאת משתמש',
+    `<label>תוקף הרשאה חדש</label><input type="date" id="renew-date" class="form-control" value="${def}"><div style="font-size:12px;color:var(--gray-400);margin-top:6px;">ברירת מחדל: בעוד שנה מהיום — ניתן לשנות. החידוש גם מפעיל מחדש משתמש מושבת.</div>`,
+    async ()=>{ const val=document.getElementById('renew-date').value; if(!val)return; try{ await api('/api/admin/users/'+id,'PUT',{authorization_expiry:val,active:1}); loadUsers(); }catch(e){ alert(e.message); } });
+}
 async function loadIntegration(){
   const {integrations}=await api('/api/admin/integration');
   document.getElementById('integration-list').innerHTML=integrations.map(it=>`<div class="card"><div class="card-title">🔌 ${esc(it.system_name)} <span class="badge ${it.status==='connected'?'badge-done':'badge-warning'}" style="margin-right:8px;">${it.status==='connected'?'מחובר':'סימולציה'}</span></div>

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   full_name TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'nurse',           -- nurse | bloodbank | admin | doctor
   active INTEGER NOT NULL DEFAULT 1,
+  deleted INTEGER NOT NULL DEFAULT 0,            -- מחיקה רכה (נשמר ל-Audit)
   authorization_expiry TEXT,                     -- תאריך תפוגת הרשאה (YYYY-MM-DD)
   permissions TEXT DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
@@ -38,6 +39,8 @@ CREATE TABLE IF NOT EXISTS samples (
   urgency TEXT DEFAULT 'שגרתי', urgency_reason TEXT,
   tube_scanned INTEGER DEFAULT 0,
   status TEXT DEFAULT 'בעיבוד',
+  result TEXT,                                   -- תוצאת בדיקה שמזין בנק הדם
+  returned_at TEXT,                              -- מתי בנק הדם החזיר/סיים
   collected_by INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   expires_at TEXT NOT NULL DEFAULT (datetime('now','localtime','+72 hours'))
@@ -48,6 +51,7 @@ CREATE TABLE IF NOT EXISTS orders (
   patient_id INTEGER NOT NULL REFERENCES patients(id),
   sample_id INTEGER REFERENCES samples(id),
   order_type TEXT DEFAULT 'components',          -- components | tests
+  urgency TEXT DEFAULT 'שגרתי',
   special_requirements TEXT, hematologist TEXT,
   ordered_by_type TEXT DEFAULT 'doctor',
   ordered_by INTEGER REFERENCES users(id),
@@ -73,7 +77,7 @@ CREATE TABLE IF NOT EXISTS transfusions (
   bp_15 TEXT, pulse_15 TEXT, temp_15 TEXT,
   bp_end TEXT, pulse_end TEXT, temp_end TEXT,
   start_time TEXT, end_time TEXT, duration_min INTEGER,
-  outcome TEXT, status TEXT DEFAULT 'פתוח', block_reason TEXT,
+  outcome TEXT, nurse_notes TEXT, status TEXT DEFAULT 'פתוח', block_reason TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
@@ -103,6 +107,19 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY, value TEXT
 );
 `);
+
+// מיגרציה בטוחה — מוסיפה עמודות למסדי נתונים קיימים (מתעלמת אם כבר קיימות)
+function migrate() {
+  const alters = [
+    "ALTER TABLE users ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE samples ADD COLUMN result TEXT",
+    "ALTER TABLE samples ADD COLUMN returned_at TEXT",
+    "ALTER TABLE orders ADD COLUMN urgency TEXT DEFAULT 'שגרתי'",
+    "ALTER TABLE transfusions ADD COLUMN nurse_notes TEXT"
+  ];
+  for (const sql of alters) { try { db.exec(sql); } catch (e) { /* עמודה כבר קיימת */ } }
+}
+migrate();
 
 function seed() {
   if (db.prepare('SELECT COUNT(*) AS c FROM users').get().c === 0) {
