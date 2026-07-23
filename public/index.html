@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>מערכת ניהול לקיחת דם ועירוי — אסותא אשדוד</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="cross">✚</div>
+      <h1>מערכת ניהול לקיחת דם ועירוי</h1>
+      <p>בית החולים אסותא אשדוד · בנק הדם</p>
+    </div>
+    <div class="form-group"><label>שם משתמש</label><input type="text" id="login-user" placeholder="הזן שם משתמש"></div>
+    <div class="form-group"><label>סיסמה</label><input type="password" id="login-pass" placeholder="••••••••"></div>
+    <div id="login-error" class="alert alert-danger hidden" style="margin-bottom:12px;"></div>
+    <button class="btn-login" onclick="doLogin()">כניסה למערכת</button>
+    <p class="login-note">הזדהות בשם משתמש וסיסמה נדרשת לפני כל פעולה · ללא Copy-Paste</p>
+  </div>
+</div>
+
+<!-- AUTH MODAL (חתימה) -->
+<div class="auth-overlay" id="auth-overlay">
+  <div class="auth-modal">
+    <h3 id="auth-title">✍️ אימות לפני חתימה</h3>
+    <p id="auth-sub">יש להזדהות מחדש לפני כל חתימה</p>
+    <label>שם משתמש</label>
+    <input type="text" id="auth-user" placeholder="שם משתמש">
+    <label>סיסמה</label>
+    <input type="password" id="auth-pass" placeholder="••••••••">
+    <div id="auth-error" class="alert alert-danger hidden" style="margin:0 0 12px;"></div>
+    <div class="auth-modal-btns">
+      <button class="btn btn-primary" style="flex:1" onclick="confirmAuth()">אשר וחתום</button>
+      <button class="btn btn-secondary" onclick="cancelAuth()">ביטול</button>
+    </div>
+  </div>
+</div>
+
+<!-- INFO MODAL (חלונות קריטריונים / בחירות) -->
+<div class="auth-overlay" id="info-overlay">
+  <div class="auth-modal" style="width:460px;max-width:92vw;">
+    <h3 id="info-title">מידע</h3>
+    <div id="info-body" style="font-size:13px;color:var(--gray-800);line-height:1.6;max-height:52vh;overflow-y:auto;margin-bottom:16px;"></div>
+    <div class="auth-modal-btns">
+      <button class="btn btn-primary" style="flex:1" onclick="confirmInfo()" id="info-ok">אישור</button>
+      <button class="btn btn-secondary" onclick="cancelInfo()">ביטול</button>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-brand">✚ מערכת ניהול לקיחת דם ועירוי &nbsp;<span>אסותא אשדוד</span></div>
+    <div class="topbar-right">
+      <div class="topbar-user"><div class="topbar-dot"></div><span id="topbar-username">מחובר</span></div>
+      <button class="btn-logout" onclick="doLogout()">יציאה</button>
+    </div>
+  </div>
+
+  <div class="main-layout">
+    <nav class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">תהליך מטופל</div>
+        <button class="nav-item active" onclick="showPage('patient-id',this)"><span class="nav-icon">👤</span> זיהוי מטופל</button>
+        <button class="nav-item" onclick="showPage('sample',this)"><span class="nav-icon">🧪</span> לקיחת דגימה</button>
+        <button class="nav-item" onclick="showPage('pre-transfusion',this)"><span class="nav-icon">🔍</span> אימות לפני עירוי</button>
+        <button class="nav-item" onclick="showPage('transfusion',this)"><span class="nav-icon">🩸</span> תיעוד עירוי</button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">מודולים נוספים</div>
+        <button class="nav-item" onclick="showPage('blood-bank',this)"><span class="nav-icon">🏦</span> בנק הדם</button>
+        <button class="nav-item" onclick="showPage('reports',this)"><span class="nav-icon">📊</span> דוחות</button>
+        <button class="nav-item hidden" id="nav-admin" onclick="showPage('admin',this)"><span class="nav-icon">⚙️</span> ניהול (אדמין)</button>
+      </div>
+      <div class="version-badge">מערכת פעילה · גרסה 3.0</div>
+    </nav>
+
+    <div class="content">
+
+      <div id="auth-warning" class="alert alert-warning hidden" style="margin-bottom:16px;"></div>
+
+      <!-- ========== PATIENT ID ========== -->
+      <div id="page-patient-id" class="page active">
+        <div class="page-header"><h2>זיהוי מטופל</h2><p>צליפת ידון זיהוי, שליפת פרטי המטופל מקמיליון, אימות תלת-כיווני וחתימה דיגיטלית.</p></div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span> צליפת ידון זיהוי</div>
+          <p style="font-size:12px;color:var(--gray-400);margin-bottom:12px;">חובה לצלוף את ברקוד הידון. ללא צליפת ידון לא ניתן להמשיך למסך לקיחת דגימה.</p>
+          <div class="search-box">
+            <input class="search-input" type="text" id="wristband-input" placeholder="מספר אשפוז מהידון (למשל A-48217)">
+            <button class="btn btn-primary" onclick="scanWristband()" id="wristband-btn">📷 סרוק ידון</button>
+          </div>
+          <div id="wristband-notfound" class="alert alert-warning hidden" style="margin-bottom:12px;"><span class="alert-icon">⚠️</span> מטופל לא נמצא במערכת.</div>
+          <div id="wristband-done" class="hidden">
+            <div class="alert alert-success"><span class="alert-icon">✅</span> ידון נסרק · הברקוד קושר למספר האשפוז. פרטי המטופל נשלפו מקמיליון.</div>
+            <div class="patient-grid">
+              <div class="patient-field"><label>שם</label><div class="val" id="pd-name">—</div></div>
+              <div class="patient-field"><label>מספר אשפוז</label><div class="val" id="pd-admission">—</div></div>
+              <div class="patient-field"><label>תעודת זהות</label><div class="val" id="pd-id">—</div></div>
+              <div class="patient-field"><label>מחלקה</label><div class="val" id="pd-dept">—</div></div>
+              <div class="patient-field"><label>סוג דם</label><div class="val" id="pd-blood">—</div></div>
+              <div class="patient-field"><label>רקע רלוונטי</label><div class="val" id="pd-bg" style="color:var(--burgundy);font-weight:700;">—</div></div>
+            </div>
+            <span class="timestamp">🕐 זמן סריקה: <span id="scan-time"></span></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span> צ׳קליסט זיהוי</div>
+          <div class="form-group">
+            <label>שיטת זיהוי</label>
+            <div class="selector-group" id="id-method-group">
+              <button class="selector-btn active" onclick="selectIdMethod(this,'self')">מטופל עצמו</button>
+              <button class="selector-btn" onclick="selectIdMethod(this,'escort')">מלווה</button>
+              <button class="selector-btn" onclick="selectIdMethod(this,'guardian')">אפוטרופוס</button>
+              <button class="selector-btn" onclick="selectIdMethod(this,'cannot')">לא ניתן להזדהות</button>
+            </div>
+          </div>
+
+          <!-- סיבה: מטופל שאינו יכול להזדהות (תיקון אסותא) -->
+          <div class="form-group hidden" id="cannot-reason-wrap">
+            <label>סיבה לאי-הזדהות</label>
+            <select class="form-control" id="cannot-reason">
+              <option value="">— בחר סיבה —</option>
+              <option>קטין</option>
+              <option>לא בהכרה / לא מתקשר</option>
+              <option>אחר...</option>
+            </select>
+          </div>
+
+          <!-- אימות תלת-כיווני (מחליף את "צמיד תקין וקריא") -->
+          <div class="form-group">
+            <label>למטופל מוצמד ידון זיהוי?</label>
+            <div class="radio-group" id="wristband-attached-group">
+              <button class="radio-btn active" onclick="selectWristbandAttached(this,true)">כן, מוצמד</button>
+              <button class="radio-btn emergency" onclick="selectWristbandAttached(this,false)">לא מוצמד</button>
+            </div>
+            <div id="wristband-missing" class="alert alert-danger hidden" style="margin-top:10px;">
+              <span class="alert-icon">🚫</span> יש להצמיד ידון זיהוי למטופל לפני כל פעולה נוספת. לא ניתן להמשיך ללא ידון.
+            </div>
+          </div>
+
+          <div class="checklist">
+            <div class="check-item"><input type="checkbox" id="c1"><label for="c1">הוקראו שם מלא ותעודת זהות ואומתו קולית מול המטופל / המלווה</label></div>
+            <div class="check-item"><input type="checkbox" id="c2"><label for="c2">אימות פרטי המטופל בין הידון לבין המחשב (קמיליון) — קיימת התאמה</label></div>
+          </div>
+          <div class="form-group">
+            <label>הערות (שדה חופשי)</label>
+            <textarea class="form-control" id="pid-notes" placeholder="הוסף הערות רלוונטיות — מצב מטופל, קושי בזיהוי, נוכחות מלווה וכו׳..."></textarea>
+          </div>
+
+          <div class="card-title" style="margin-top:8px;"><span class="step-badge">3</span> חתימה ראשונה — אישור זיהוי</div>
+          <div class="sig-box" id="sig1" onclick="openAuth('sig1','sig1-done','identification','אישור זיהוי')">✍️ &nbsp; חתום ואשר זיהוי — נדרש אימות שם משתמש וסיסמה (למורשה בלבד)</div>
+          <div id="sig1-done" class="hidden">
+            <div class="alert alert-success"><span class="alert-icon">✅</span> הזיהוי אומת ונחתם בהצלחה · <span class="timestamp">🕐 <span id="sig1-time"></span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== SAMPLE ========== -->
+      <div id="page-sample" class="page">
+        <div class="page-header"><h2>לקיחת דגימה והזמנה</h2><p>סריקת מדבקת המבחנה, בחירת בדיקות ודחיפות, והזמנת מרכיבי דם עם בקרת CDSS.</p></div>
+        <div id="sample-no-patient" class="alert alert-warning"><span class="alert-icon">⚠️</span> יש להשלים זיהוי מטופל וצליפת ידון תחילה במסך "זיהוי מטופל".</div>
+        <div id="sample-body" class="hidden">
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span> שיוך מבחנה · <span id="sample-patient-label" style="color:var(--burgundy);"></span></div>
+          <p style="font-size:12px;color:var(--gray-400);margin-bottom:12px;">יש לסרוק את מדבקת המטופל שעל המבחנה לאימות השיוך.</p>
+          <button class="scan-btn" onclick="scanTube()" id="tube-btn">📷 &nbsp; סרוק מדבקת מבחנה</button>
+          <div id="tube-data" class="hidden">
+            <div class="alert alert-success"><span class="alert-icon">✅</span> <span id="tube-text"></span></div>
+            <span class="timestamp">🕐 זמן שיוך: <span id="tube-time"></span></span>
+          </div>
+          <div class="divider"></div>
+          <div class="form-group">
+            <label>בדיקות נדרשות</label>
+            <div class="checklist">
+              <div class="check-item"><input type="checkbox" id="t1" checked><label for="t1">סוג דם וסקר נוגדנים</label></div>
+              <div class="check-item"><input type="checkbox" id="t2"><label for="t2">Direct Coombs Test (DAT)</label></div>
+              <div class="check-item"><input type="checkbox" id="t3"><label for="t3"><strong>דם טבורי / יילוד (עד גיל 4 חודשים)</strong> — הבדיקות הנדרשות שונות</label></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>רמת דחיפות</label>
+            <div class="radio-group" id="urgency-group">
+              <button class="radio-btn active" onclick="selectRadio(this)">שגרתי</button>
+              <button class="radio-btn urgent" onclick="selectRadio(this)">דחוף (תוך שעתיים)</button>
+              <button class="radio-btn urgent" onclick="selectRadio(this)">דחוף לפי סוג — ללא סקר והצלבה</button>
+              <button class="radio-btn emergency" onclick="selectRadio(this)">חירום — ללא בדיקת סוג (O±)</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>סיבת דחיפות / אבחנה (שדה חופשי)</label>
+            <input type="text" class="form-control" id="urgency-reason" placeholder="למשל: דימום פעיל, ירידה בהמוגלובין, הכנה לניתוח...">
+          </div>
+          <button class="btn btn-primary" onclick="createSample()">🧪 צור ושייך דגימה</button>
+          <div id="sample-created" class="hidden" style="margin-top:12px;">
+            <div class="alert alert-success"><span class="alert-icon">✅</span> <span id="sample-created-text"></span> · <span class="timestamp">🕐 <span id="sample-time"></span></span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span> הזמנה</div>
+          <div class="form-group">
+            <label>מזמין</label>
+            <div class="selector-group" id="orderer-group">
+              <button class="selector-btn active" onclick="selectOrderer(this,'doctor')">📋 הוראת רופא</button>
+              <button class="selector-btn" onclick="selectOrderer(this,'nurse')">👩‍⚕️ יוזמת צוות סיעודי</button>
+            </div>
+          </div>
+
+          <!-- אפשרות: בדיקות בלבד ללא מרכיבים (תיקון אסותא) -->
+          <div class="form-group">
+            <label>סוג ההזמנה</label>
+            <div class="selector-group" id="order-type-group">
+              <button class="selector-btn active" onclick="selectOrderType(this,'components')">מרכיבי דם</button>
+              <button class="selector-btn" onclick="selectOrderType(this,'tests')">בדיקות בלבד (ללא מרכיבים)</button>
+            </div>
+          </div>
+
+          <div id="components-block">
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:5px;">מרכיבי דם</label>
+            <div id="component-rows"></div>
+            <button class="btn btn-outline btn-sm" onclick="addComponentRow()" style="margin-bottom:14px;">➕ הוסף מרכיב</button>
+
+            <div class="form-group">
+              <label>דרישות מיוחדות</label>
+              <div class="selector-group" id="special-req">
+                <button class="selector-btn" onclick="toggleSpecial(this,'מוקרן')">מוקרן</button>
+                <button class="selector-btn" onclick="toggleSpecial(this,'שטוף')">שטוף</button>
+                <button class="selector-btn" onclick="toggleSpecial(this,'פילטר')">פילטר</button>
+                <button class="selector-btn" onclick="toggleSpecial(this,'CMV')">CMV negative / safe</button>
+                <button class="selector-btn" onclick="toggleSpecial(this,'אחר')">אחר</button>
+              </div>
+              <div id="special-summary" style="font-size:12px;color:var(--gray-600);margin-top:8px;"></div>
+            </div>
+          </div>
+
+          <div id="cdss-alert" class="alert alert-warning hidden"><span class="alert-icon">⚠️</span><div><strong>התראת CDSS</strong><br>למטופל מתועד נוגדן anti-K בהיסטוריה — יש לוודא הקצאת מנה תואמת (K-negative).</div></div>
+
+          <button class="btn btn-primary" onclick="sendOrder()">📤 שלח הזמנה</button>
+          <div id="order-sent" class="hidden" style="margin-top:12px;">
+            <div class="alert alert-success"><span class="alert-icon">✅</span> ההזמנה נשלחה ונחתמה · <span class="timestamp">🕐 <span id="order-time"></span></span></div>
+            <div class="status-track"><div class="status-step active">נקלט</div><div class="status-step">בהכנה</div><div class="status-step">נשלח</div><div class="status-step">הגיע</div></div>
+          </div>
+        </div>
+        </div>
+      </div>
+
+      <!-- ========== PRE-TRANSFUSION ========== -->
+      <div id="page-pre-transfusion" class="page">
+        <div class="page-header"><h2>אימות לפני עירוי</h2><p>זיהוי מטופל (2 מזהים), סריקת מנה לפי סדר, בדיקות התאמה CDSS, ושתי חתימות. אי-התאמה גוררת חסימה מלאה.</p></div>
+        <div id="pre-no-patient" class="alert alert-warning"><span class="alert-icon">⚠️</span> יש להשלים זיהוי מטופל תחילה במסך "זיהוי מטופל".</div>
+        <div id="pre-body" class="hidden">
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span> זיהוי (2 מזהים) וחתימה ראשונה</div>
+          <div class="form-group">
+            <label>שיטת זיהוי (זהה ללקיחת דם)</label>
+            <div class="selector-group">
+              <button class="selector-btn active" onclick="selectOne(this)">מטופל עצמו</button>
+              <button class="selector-btn" onclick="selectOne(this)">מלווה</button>
+              <button class="selector-btn" onclick="selectOne(this)">אפוטרופוס</button>
+            </div>
+          </div>
+          <div class="patient-grid" style="margin-bottom:12px;">
+            <div class="patient-field"><label>מזהה 1 — שם מלא</label><div class="val" id="pre-name">—</div></div>
+            <div class="patient-field"><label>מזהה 2 — תעודת זהות</label><div class="val" id="pre-id">—</div></div>
+            <div class="patient-field"><label>סוג דם</label><div class="val" id="pre-blood">—</div></div>
+          </div>
+          <div class="checklist">
+            <div class="check-item"><input type="checkbox" id="pre-verified"><label for="pre-verified"><strong>פרטי המטופל אומתו עפ"י נוהל</strong> (ידון ↔ מדבקת מרכיב הדם ↔ מדבקת פרטי המטופל)</label></div>
+          </div>
+          <div class="grid-3">
+            <div class="form-group"><label>לחץ דם ראשוני (mmHg)</label><input type="text" class="form-control" id="pre-bp" placeholder="120/80"></div>
+            <div class="form-group"><label>דופק</label><input type="text" class="form-control" id="pre-pulse" placeholder="72"></div>
+            <div class="form-group"><label>חום</label><input type="text" class="form-control" id="pre-temp" placeholder="36.8"></div>
+          </div>
+          <div class="sig-box" id="pre-sig1" onclick="openAuth('pre-sig1','pre-sig1-done','pre_transfusion','חתימה ראשונה — מזהה 1')">✍️ &nbsp; חתימה ראשונה (מזהה 1) — נדרש אימות שם משתמש וסיסמה</div>
+          <div id="pre-sig1-done" class="hidden"><div class="alert alert-success"><span class="alert-icon">✅</span> חתימה ראשונה אומתה · המדדים יועברו אוטומטית לתיעוד העירוי</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step-badge">2</span> סריקת מנה — לפי סדר</div>
+          <p style="font-size:12px;color:var(--gray-400);margin-bottom:12px;">יש לסרוק בסדר הבא. כל סריקה נפתחת רק לאחר הקודמת.</p>
+          <div id="scan-steps">
+            <button class="scan-btn" id="scan-1" onclick="scanUnitStep(1)">📷 &nbsp; 1 · סרוק מספר מנה ממדבקת מד"א</button>
+            <button class="scan-btn hidden" id="scan-2" onclick="scanUnitStep(2)">📷 &nbsp; 2 · סרוק מספר מנה ממדבקת הניפוק</button>
+            <button class="scan-btn hidden" id="scan-3" onclick="scanUnitStep(3)">📷 &nbsp; 3 · סרוק ת"ז מטופל ממדבקת הניפוק</button>
+          </div>
+          <div id="scan-summary" style="font-size:12px;color:var(--gray-600);margin-bottom:12px;"></div>
+
+          <div id="cdss-check-wrap" class="hidden">
+            <div class="grid-2">
+              <div class="form-group"><label>סוג דם המנה</label>
+                <select class="form-control" id="unit-blood"><option>O+</option><option>O-</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option></select>
+              </div>
+            </div>
+            <button class="btn btn-outline" onclick="checkMatch()">🔍 בדוק התאמת מנה (CDSS)</button>
+          </div>
+
+          <div id="match-ok" class="hidden" style="margin-top:12px;">
+            <div class="alert alert-success"><span class="alert-icon">✅</span><div><strong>בדיקת CDSS — התאמה מלאה</strong><br><span id="match-ok-text"></span></div></div>
+            <div class="checklist">
+              <div class="check-item"><input type="checkbox" id="m1" checked><label for="m1">סוג דם קיים ותואם</label></div>
+              <div class="check-item"><input type="checkbox" id="m2" checked><label for="m2">מס' המנה תואם</label></div>
+              <div class="check-item"><input type="checkbox" id="m3" checked><label for="m3">תאריך התפוגה תואם</label></div>
+              <div class="check-item"><input type="checkbox" id="m4" checked><label for="m4">קיימת בדיקת הצלבה על גבי המרכיב</label></div>
+              <div class="check-item"><input type="checkbox" id="m5"><label for="m5">בדיקה פיזית: השקית שלמה, ללא קרישים או דליפה</label></div>
+            </div>
+            <div class="sig-box" id="pre-sig2" onclick="openAuth('pre-sig2','pre-sig2-done','pre_transfusion','חתימה שנייה — מזהה 2')">✍️ &nbsp; חתימה שנייה (מזהה 2, סיסמה נפרדת) — אשר התאמה</div>
+            <div id="pre-sig2-done" class="hidden"><div class="alert alert-success"><span class="alert-icon">✅</span> שני המזהים חתמו — ניתן להתחיל עירוי</div></div>
+          </div>
+          <div id="match-fail" class="hidden" style="margin-top:12px;">
+            <div class="blocker">
+              <h3>🚫 חסימה מלאה — אי-התאמה</h3>
+              <p id="match-fail-text"></p>
+              <div class="form-group" style="margin-top:12px;text-align:right;"><label style="color:var(--danger);">סיבת אי-התאמה (לתיעוד)</label><select class="form-control"><option>סוג דם שגוי</option><option>מנה לא משויכת למטופל זה</option><option>מנה פגת תוקף</option><option>בעיה בהצלבה</option></select></div>
+              <p style="margin-top:8px;font-size:12px;">יש להחזיר את המנה לבנק הדם.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- מנות פלסמה ברצף -->
+        <div class="card hidden" id="plasma-card">
+          <div class="card-title">🩸 מנות פלסמה נוספות</div>
+          <p style="font-size:12px;color:var(--gray-400);margin-bottom:12px;">ניתן לתת מספר מנות פלסמה ברצף. הוסף מנה נוספת לפי הצורך.</p>
+          <div id="plasma-list"></div>
+          <button class="btn btn-outline btn-sm" onclick="addPlasmaUnit()">➕ הוסף מנת פלסמה</button>
+        </div>
+        </div>
+      </div>
+
+      <!-- ========== TRANSFUSION ========== -->
+      <div id="page-transfusion" class="page">
+        <div class="page-header"><h2>תיעוד עירוי</h2><p>תיעוד מדדים בשלוש נקודות ושלוש חתימות. חובה להזין מדדים לפני התחלת העירוי.</p></div>
+        <div id="trans-no-patient" class="alert alert-warning"><span class="alert-icon">⚠️</span> יש לזהות מטופל ולאמת מנה תחילה.</div>
+        <div id="trans-body" class="hidden">
+        <div class="card">
+          <div class="card-title"><span class="step-badge">1</span> ביצוע ותיעוד</div>
+          <div class="patient-grid" style="margin-bottom:12px;">
+            <div class="patient-field"><label>מטופל</label><div class="val" id="trans-patient">—</div></div>
+            <div class="patient-field"><label>מנה</label><div class="val" id="trans-unit">—</div></div>
+            <div class="patient-field"><label>משך עירוי בפועל</label><div class="val" id="duration-display">—</div></div>
+          </div>
+
+          <!-- מדדים חובה לפני התחלה -->
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:8px;">סימנים חיוניים — לפני המתן (חובה לפני התחלת עירוי)</label>
+          <div class="grid-3" style="margin-bottom:16px;">
+            <div class="form-group"><label>לחץ דם</label><input type="text" class="form-control" id="bp-before" placeholder="120/80" oninput="checkStartReady()"></div>
+            <div class="form-group"><label>דופק</label><input type="text" class="form-control" id="pulse-before" placeholder="72" oninput="checkStartReady()"></div>
+            <div class="form-group"><label>חום</label><input type="text" class="form-control" id="temp-before" placeholder="36.8" oninput="checkStartReady()"></div>
+          </div>
+
+          <div class="grid-3" style="margin-bottom:16px;">
+            <div class="card" style="margin:0;padding:14px;text-align:center;border:1.5px solid var(--gray-200);">
+              <div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;">התחלת עירוי</div>
+              <button class="btn btn-primary btn-sm" onclick="startTransfusion()" id="start-btn" disabled>▶ התחל עירוי</button>
+              <div id="start-hint" style="margin-top:6px;font-size:11px;color:var(--danger);">נדרשים מדדים לפני התחלה</div>
+              <div id="start-time-display" style="margin-top:6px;font-size:12px;color:var(--success);font-weight:600;"></div>
+            </div>
+            <div class="card" style="margin:0;padding:14px;border:1.5px solid var(--gray-200);">
+              <div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;">מדדים — 15 דקות מתחילת ההזלפה</div>
+              <input type="text" class="form-control" id="bp15" placeholder="ל.ד 120/80" style="margin-bottom:6px;">
+              <input type="text" class="form-control" id="pulse15" placeholder="דופק / חום">
+              <div id="bp15-time" style="margin-top:4px;font-size:11px;color:var(--gray-400);"></div>
+            </div>
+            <div class="card" style="margin:0;padding:14px;border:1.5px solid var(--gray-200);">
+              <div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;">מדדים — בסיום</div>
+              <input type="text" class="form-control" id="bp-end" placeholder="ל.ד 120/80" style="margin-bottom:6px;">
+              <input type="text" class="form-control" id="pulse-end" placeholder="דופק / חום">
+            </div>
+          </div>
+
+          <button class="btn btn-secondary" style="margin-bottom:12px;" onclick="endTransfusion()">⏹ סיום עירוי</button>
+          <div id="end-time-display" style="margin-bottom:12px;font-size:12px;color:var(--success);font-weight:600;"></div>
+          <div id="end-outcome" class="hidden" style="margin-bottom:12px;"></div>
+
+          <div class="sig-box" id="trans-sig3" onclick="openAuth('trans-sig3','trans-sig3-done','transfusion','חתימה סופית')">✍️ &nbsp; חתימה שלישית (סופית) — נדרש אימות שם משתמש וסיסמה</div>
+          <div id="trans-sig3-done" class="hidden"><div class="alert alert-success"><span class="alert-icon">✅</span> העירוי תועד במלואו — מדדים, חתימות וחותמות זמן נשמרו ל-Audit Trail</div></div>
+        </div>
+        </div>
+      </div>
+
+      <!-- ========== BLOOD BANK ========== -->
+      <div id="page-blood-bank" class="page">
+        <div class="page-header"><h2>בנק הדם</h2><p>ניהול דגימות, הזמנות מנות וחיפוש מטופל.</p></div>
+        <div class="card">
+          <div class="card-title">🔍 חיפוש מטופל</div>
+          <div class="search-box">
+            <input class="search-input" type="text" placeholder="חפש לפי שם / מספר אשפוז / תעודת זהות..." id="patient-search" onkeydown="if(event.key==='Enter')searchPatient()">
+            <button class="btn btn-primary" onclick="searchPatient()">חפש</button>
+          </div>
+          <div id="search-result"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">🧪 דגימות נכנסות</div>
+          <table>
+            <thead><tr><th>מספר דגימה</th><th>מטופל</th><th>זמן קליטה</th><th>דחיפות</th><th>סטטוס</th></tr></thead>
+            <tbody id="samples-tbody"><tr><td colspan="5" style="color:var(--gray-400);">טוען...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-title">📦 מעקב הזמנות מנות</div>
+          <table>
+            <thead><tr><th>מטופל</th><th>מרכיב</th><th>זמן הזמנה</th><th>סטטוס</th><th>עדכון אחרון</th></tr></thead>
+            <tbody id="orders-tbody"><tr><td colspan="5" style="color:var(--gray-400);">טוען...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ========== REPORTS ========== -->
+      <div id="page-reports" class="page">
+        <div class="page-header"><h2>דוחות</h2><p>נתונים אגרגטיביים מבוססי חותמות הזמן והעקיבות לתמיכה בקבלת החלטות ועמידה רגולטורית.</p></div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-val" id="rp-avg">—</div><div class="stat-lbl">דק׳ — משך עירוי ממוצע</div></div>
+          <div class="stat-card"><div class="stat-val" id="rp-trans">—</div><div class="stat-lbl">עירויים שהושלמו</div></div>
+          <div class="stat-card"><div class="stat-val" id="rp-blocks">—</div><div class="stat-lbl">חסימות CDSS</div></div>
+          <div class="stat-card"><div class="stat-val" id="rp-audit">100%</div><div class="stat-lbl">עקיבות (Audit Trail)</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">עירויים לפי מחלקה</div>
+          <div class="bar-chart" id="rp-dept"><div class="bar-row"><div class="bar-label" style="color:var(--gray-400);">אין נתונים עדיין</div></div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">📋 יומן פעולות (Audit Trail)</div>
+          <table>
+            <thead><tr><th>זמן</th><th>משתמש</th><th>פעולה</th><th>פרטים</th></tr></thead>
+            <tbody id="audit-tbody"><tr><td colspan="4" style="color:var(--gray-400);">טוען...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ========== ADMIN ========== -->
+      <div id="page-admin" class="page">
+        <div class="page-header"><h2>⚙️ ניהול מערכת (אדמין)</h2><p>ניהול משתמשים, אינטגרציה, דוחות והגדרות מערכת.</p></div>
+        <div class="selector-group" style="margin-bottom:16px;">
+          <button class="selector-btn active" onclick="adminTab('users',this)">👥 משתמשים</button>
+          <button class="selector-btn" onclick="adminTab('integration',this)">🔌 אינטגרציה</button>
+          <button class="selector-btn" onclick="adminTab('reports',this)">📊 דוחות ו-Audit</button>
+          <button class="selector-btn" onclick="adminTab('settings',this)">🛠️ הגדרות</button>
+        </div>
+
+        <div id="admin-users" class="admin-tab">
+          <div class="card">
+            <div class="card-title">➕ הוספת משתמש</div>
+            <div class="grid-3">
+              <div class="form-group"><label>שם משתמש</label><input class="form-control" id="nu-username"></div>
+              <div class="form-group"><label>שם מלא</label><input class="form-control" id="nu-fullname"></div>
+              <div class="form-group"><label>סיסמה</label><input class="form-control" id="nu-password"></div>
+              <div class="form-group"><label>תפקיד</label><select class="form-control" id="nu-role"><option value="nurse">איש צוות</option><option value="doctor">רופא</option><option value="bloodbank">בנק הדם</option><option value="admin">מנהל</option></select></div>
+              <div class="form-group"><label>תוקף הרשאה</label><input type="date" class="form-control" id="nu-expiry"></div>
+            </div>
+            <button class="btn btn-primary" onclick="createUser()">💾 צור משתמש</button>
+          </div>
+          <div class="card">
+            <div class="card-title">👥 משתמשי המערכת</div>
+            <table><thead><tr><th>שם משתמש</th><th>שם מלא</th><th>תפקיד</th><th>תוקף הרשאה</th><th>סטטוס</th><th>פעולות</th></tr></thead>
+            <tbody id="users-tbody"><tr><td colspan="6" style="color:var(--gray-400);">טוען...</td></tr></tbody></table>
+          </div>
+        </div>
+
+        <div id="admin-integration" class="admin-tab hidden">
+          <div class="alert alert-warning"><span class="alert-icon">ℹ️</span> חיבור אמיתי לקמיליון ולאוטופיוזן דורש גישת API מאסותא. כרגע המודול פועל במצב סימולציה ומוכן לחיבור.</div>
+          <div id="integration-list"></div>
+        </div>
+
+        <div id="admin-reports" class="admin-tab hidden">
+          <div class="stat-grid">
+            <div class="stat-card"><div class="stat-val" id="a-avg">—</div><div class="stat-lbl">דק׳ — משך עירוי ממוצע</div></div>
+            <div class="stat-card"><div class="stat-val" id="a-trans">—</div><div class="stat-lbl">עירויים שהושלמו</div></div>
+            <div class="stat-card"><div class="stat-val" id="a-blocks">—</div><div class="stat-lbl">חסימות CDSS</div></div>
+            <div class="stat-card"><div class="stat-val">100%</div><div class="stat-lbl">עקיבות</div></div>
+          </div>
+          <div class="card"><div class="card-title">📋 יומן פעולות מלא (Audit Trail)</div>
+            <table><thead><tr><th>זמן</th><th>משתמש</th><th>פעולה</th><th>פרטים</th></tr></thead>
+            <tbody id="admin-audit-tbody"><tr><td colspan="4" style="color:var(--gray-400);">טוען...</td></tr></tbody></table>
+          </div>
+        </div>
+
+        <div id="admin-settings" class="admin-tab hidden">
+          <div class="card">
+            <div class="card-title">🩺 רשימת המטולוגים (מאשרי מנה שטופה)</div>
+            <textarea class="form-control" id="set-hema" rows="4" placeholder="שם בכל שורה"></textarea>
+          </div>
+          <div class="card">
+            <div class="card-title">🏥 מחלקות</div>
+            <textarea class="form-control" id="set-depts" rows="3" placeholder="שם בכל שורה"></textarea>
+          </div>
+          <div class="card">
+            <div class="card-title">📄 קריטריונים</div>
+            <div class="form-group"><label>קריטריונים למוקרן</label><textarea class="form-control" id="set-irr" rows="3"></textarea></div>
+            <div class="form-group"><label>קריטריונים ל-CMV</label><textarea class="form-control" id="set-cmv" rows="3"></textarea></div>
+          </div>
+          <button class="btn btn-primary" onclick="saveSettings()">💾 שמור הגדרות</button>
+          <div id="settings-saved" class="alert alert-success hidden" style="margin-top:12px;"><span class="alert-icon">✅</span> ההגדרות נשמרו</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
